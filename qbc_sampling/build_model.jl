@@ -8,7 +8,8 @@ using LinearAlgebra
 using PolyChaos
 default()
 
-# Implementing diversity
+# Computing the diversity of a new target point by measuring the variance amongst
+# the predictions of the models in the committee
 function calculate_variance(x, models)
     predictions = []
         for model in models
@@ -18,6 +19,8 @@ function calculate_variance(x, models)
     return var(predictions, corrected=false)
 end
 
+# Calculating the minimum distance between a new target point and the previously
+# sampled points
 function minimum_distance(new_x, prev_x)
     min_dist = Inf
     for point in prev_x
@@ -29,6 +32,7 @@ function minimum_distance(new_x, prev_x)
     return min_dist
 end
 
+# Calculating the diversity metric of a new target point
 function diversity_metric(prev_x, new_x, models, lambda = 0.5, mode=1)
     variance = calculate_variance(new_x, models)
     min_dist = minimum_distance(new_x, prev_x)
@@ -39,18 +43,19 @@ function diversity_metric(prev_x, new_x, models, lambda = 0.5, mode=1)
     end
 end
 
+# Main function to add new points to the sample
 function query_by_committee(num_iter, num_new_points, sample_space, lower_bound, upper_bound, target_fn, initial_samples)
     prev_points = sample(initial_samples, lower_bound, upper_bound, SobolSample())
     y = target_fn.(x)
     for i in 1:num_iter
         kriging_surrogate = Kriging(prev_points, y, lower_bound, upper_bound, p=1.9)
-        my_radial_basis = RadialBasis(prev_points, y, lower_bound, upper_bound)
+        radial_basis = RadialBasis(prev_points, y, lower_bound, upper_bound)
         x = []
         for i in 1:num_new_points
             max_score = 0
             max_index = -1
             for j in 1:length(sample_space)
-                score = diversity_metric(prev_points, sample_space[j], [my_radial_basis, kriging_surrogate], 0, 0)
+                score = diversity_metric(prev_points, sample_space[j], [radial_basis, kriging_surrogate], 0, 0)
                 if score > max_score
                     max_score = score
                     max_index = j
@@ -66,6 +71,26 @@ function query_by_committee(num_iter, num_new_points, sample_space, lower_bound,
     return prev_points, y
 end
 
-function visualize()
+# Compute the error between the committee's predictions and the actual value
+function calculate_error(point, models, actual, mode="MSE")
+    target = actual(point)
+    errors = []
+    for model in models
+        prediction = model(point)
+        append!(errors, abs(target - prediction))
+    end
+    if mode == "MSE"
+        return mean(errors.^2)
+    end
+    if mode == "max"
+        return maximum(errors)
+    end
+end
 
+# Visualizing the models' predictions
+function visualize_2d(prev_points, y, lower_bound, upper_bound)
+    radial_basis = RadialBasis(prev_points, y, lower_bound, upper_bound)
+    plot(prev_points, y, seriestype=:scatter, label="Sampled points", xlims=(lower_bound, upper_bound), ylims=(-7, 17), legend=:top)
+    plot!(xs, f.(xs), label="True function", legend=:top)
+    plot!(xs, radial_basis.(xs), label="Surrogate function", legend=:top)
 end
